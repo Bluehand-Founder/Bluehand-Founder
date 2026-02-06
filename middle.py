@@ -30,11 +30,37 @@ FILTER_OPTIONS = {
     "is_ev": "⚡ 전기차 전담",
     "is_hydrogen": "💧 수소차 전담",
     "is_frame": "🔨 판금/차체 수리",
-    "is_excellent": "🏆 우수 협력점",
+    "is_cs_excellent": "🏆 우수 협력점",
     "is_n_line": "🏎️ N-Line 전담",
 }
 # SQL 쿼리 작성 시 SELECT 절에 넣기 위해 키값들을 쉼표로 연결한 문자열 생성
 FLAG_COLS_SQL = ", ".join(FILTER_OPTIONS.keys())
+
+# (추가) 지도 밖(오른쪽 위) 범례 HTML
+LEGEND_HTML = """
+<div style="display:flex; justify-content:flex-end; gap:18px; align-items:center; padding-top:18px;">
+  <div style="display:flex; align-items:center; gap:6px; font-weight:700;">
+    <svg width="16" height="16" viewBox="0 0 24 24" style="fill:#2E7D32">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/>
+    </svg>
+    <span>전문 블루핸즈</span>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:6px; font-weight:700;">
+    <svg width="16" height="16" viewBox="0 0 24 24" style="fill:#1565C0">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/>
+    </svg>
+    <span>종합 블루핸즈</span>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:6px; font-weight:700;">
+    <svg width="16" height="16" viewBox="0 0 24 24" style="fill:#C62828">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/>
+    </svg>
+    <span>하이테크센터</span>
+  </div>
+</div>
+"""
 
 # 데이터베이스 연결 설정 (환경 변수에서 보안 정보를 가져옴)
 DB_CONFIG = {
@@ -213,6 +239,14 @@ def format_services_html(row):
 def add_markers_to_map(m, rows, user_lat=None, user_lng=None):
     """Folium 지도 객체(m)에 검색 결과(rows)를 마커로 추가하는 함수"""
     fg = folium.FeatureGroup(name="검색 결과")
+
+    # type_id별 핀 색상 매핑 (1=전문, 2=종합, 3=하이테크)
+    type_color_map = {
+        1: "green",
+        2: "blue",
+        3: "red",
+    }
+
     for row in rows:
         try:
             # 위도, 경도 정보가 없거나 에러 발생 시 건너뜀
@@ -232,6 +266,10 @@ def add_markers_to_map(m, rows, user_lat=None, user_lng=None):
 
         # 팝업 내용 구성 (HTML)
         services_html = format_services_html(row)
+
+        # type_id 기반 핀 색상 결정
+        pin_color = type_color_map.get(row.get("type_id"), "gray")
+
         html = f"""
         <div style="width:240px; font-family:sans-serif;">
             <h4 style="margin:0; color:#0054a6;">{name}</h4>
@@ -243,9 +281,14 @@ def add_markers_to_map(m, rows, user_lat=None, user_lng=None):
             </div>
         </div>
         """
-        # 마커 추가: 아이콘은 자동차 모양, 색상은 파란색
-        folium.Marker([lat, lng], popup=folium.Popup(html, max_width=300), tooltip=name,
-                      icon=folium.Icon(color="blue", icon="car", prefix="fa")).add_to(fg)
+        # 마커 추가: 아이콘은 자동차 모양, 색상은 type_id에 따라 변경
+        folium.Marker(
+            [lat, lng],
+            popup=folium.Popup(html, max_width=300),
+            tooltip=name,
+            icon=folium.Icon(color=pin_color, icon="car", prefix="fa")
+        ).add_to(fg)
+
     fg.add_to(m)
 
 
@@ -277,7 +320,7 @@ def get_bluehands_data(search_text, selected_filters, region_filter):
 
         # 기본 쿼리: bluehands 테이블과 regions 테이블 조인
         query = f"""
-            SELECT a.id, a.name, a.latitude, a.longitude, a.address, a.phone, {FLAG_COLS_SQL}
+            SELECT a.id, a.type_id, a.name, a.latitude, a.longitude, a.address, a.phone, {FLAG_COLS_SQL}
             FROM bluehands a
             LEFT JOIN regions b ON a.region_id = b.id
         """
@@ -382,24 +425,25 @@ if should_search:
     if not data_list:
         st.error("검색 결과가 없습니다.")
     else:
-        st.subheader(f"🏢 검색 결과: {len(data_list)}개")
+        # (수정) 검색결과 왼쪽, 범례 오른쪽
+        colL, colR = st.columns([3, 2])
+        with colL:
+            st.subheader(f"🏢 검색 결과: {len(data_list)}개")
+        with colR:
+            st.markdown(LEGEND_HTML, unsafe_allow_html=True)
 
-    # [수정됨] 지도 중심 좌표 설정 로직 (기존 로직 변경)
-    # 기존 주석: 지도 중심 좌표 설정 (우선순위: 사용자 위치 -> 검색 결과 첫 번째 지점 -> 강남역)
-    # 수정된 우선순위: 1. 검색 결과 첫 번째 지점 -> 2. 사용자 위치 -> 3. 강남역(기본값)
+    # 지도 중심 좌표 설정 (우선순위: 검색 결과 첫 번째 지점 -> 사용자 위치 -> 강남역)
     map_center = [37.4979, 127.0276]  # 3순위: 기본값 (강남역)
 
     # 1순위 체크: 검색된 데이터(data_list)가 있고 위/경도 정보가 존재하는 경우
     if data_list and data_list[0].get('latitude'):
         try:
-            # 첫 번째 검색 결과의 좌표를 실수형으로 변환하여 중심점으로 설정
             map_center = [float(data_list[0]['latitude']), float(data_list[0]['longitude'])]
         except (ValueError, TypeError):
-            # 만약 좌표 데이터가 손상되어 변환 실패 시, 사용자 위치가 있다면 사용 (2순위)
             if user_lat:
                 map_center = [user_lat, user_lng]
 
-    # 2순위 체크: 검색 결과가 없거나 좌표가 없을 때, 사용자 위치가 있다면 중심으로 설정
+    # 2순위 체크
     elif user_lat:
         map_center = [user_lat, user_lng]
 
@@ -408,10 +452,15 @@ if should_search:
     LocateControl().add_to(m)  # 현재 위치 찾기 버튼 추가
 
     # 사용자 위치가 있으면 빨간색 사람 아이콘 마커 표시
-    if user_lat: folium.Marker([user_lat, user_lng], icon=folium.Icon(color="red", icon="user", prefix="fa")).add_to(m)
+    if user_lat:
+        folium.Marker(
+            [user_lat, user_lng],
+            icon=folium.Icon(color="red", icon="user", prefix="fa")
+        ).add_to(m)
 
-    # 검색된 지점 마커 표시
-    if data_list: add_markers_to_map(m, data_list, user_lat, user_lng)
+    # 검색된 지점 마커 표시 (type_id별 색상 적용)
+    if data_list:
+        add_markers_to_map(m, data_list, user_lat, user_lng)
 
     # Streamlit에 지도 렌더링
     st_folium(m, height=500, use_container_width=True)
@@ -420,6 +469,7 @@ if should_search:
     if data_list:
         df = pd.DataFrame(data_list)
         render_paginated_table(data_list)
+
 else:
     # 초기 진입 화면 (검색 전)
     st.info("👈 왼쪽 상단의 사이드바에서 지역을 선택하거나, 검색어를 입력하세요.")
