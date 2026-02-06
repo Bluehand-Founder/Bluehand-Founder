@@ -515,7 +515,7 @@ def get_regions():
     try:
         conn = get_conn()
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM regions ORDER BY id")
+        cursor.execute("SELECT name FROM bluehands_db.regions ORDER BY id")
         return [row[0] for row in cursor.fetchall()]
     except Exception:
         return []
@@ -651,3 +651,15 @@ else:
     st.info("👈 왼쪽 사이드바에서 원하는 지역과 정비 옵션을 선택하거나, 지점명을 검색해보세요.")
     m = folium.Map(location=[37.4979, 127.0276], zoom_start=13)
     st_folium(m, height=450, use_container_width=True)
+
+
+# FAQ HTML/CSS (resource)
+st.markdown("---")
+faq_css_path = os.path.join(os.path.dirname(__file__), "resource", "faq.css")
+if os.path.exists(faq_css_path):
+    with open(faq_css_path, "r", encoding="utf-8") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+faq_html_path = os.path.join(os.path.dirname(__file__), "resource", "faq.html")
+if os.path.exists(faq_html_path):
+    with open(faq_html_path, "r", encoding="utf-8") as f:
+        st.markdown(f.read(), unsafe_allow_html=True)
